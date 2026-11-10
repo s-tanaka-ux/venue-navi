@@ -1,0 +1,14 @@
+{
+  "site_name": "会場ナビ",
+  "tagline": "ライブコンサート会場総合サイト",
+  "base_url": "https://s-tanaka-ux.github.io/venue-navi",
+  "contact_email": "toiawase.livenavi@gmail.com",
+  "adsense_client": "",
+  "ad_slots": { "top": "", "mid": "", "bottom": "" },
+  "show_ad_placeholders": true,
+  "model": "claude-haiku-5-5",
+  "max_new_descriptions": 40,
+  "refetch_days": 7,
+  "overpass_url": "https://overpass-api.de/api/interpreter",
+  "user_agent": "venue-site-builder/1.0 (set-your-contact-here)"
+}
