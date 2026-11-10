@@ -1,8 +1,8 @@
 {
   "site_name": "会場ナビ",
   "tagline": "ライブコンサート会場総合サイト",
-  "base_url": "",
-  "contact_email": "",
+  "base_url": "https://s-tanaka-ux.github.io/venue-navi",
+  "contact_email": "toiawase.livenavi@gmail.com",
   "adsense_client": "",
   "ad_slots": { "top": "", "mid": "", "bottom": "" },
   "show_ad_placeholders": true,
