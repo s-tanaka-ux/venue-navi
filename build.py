@@ -22,7 +22,12 @@ def esc(s):
 
 
 # ---------------------------------------------------------------- 1) 取得
-URLS = CFG.get("overpass_urls") or ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]
+URLS = CFG.get("overpass_urls") or [
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.osm.jp/api/interpreter",
+]
 
 
 def overpass(q):
@@ -32,7 +37,7 @@ def overpass(q):
             try:
                 req = urllib.request.Request(u, data=urllib.parse.urlencode({"data": q}).encode(),
                                              headers={"User-Agent": CFG["user_agent"]})
-                with urllib.request.urlopen(req, timeout=CFG.get("request_timeout", 100)) as r:
+                with urllib.request.urlopen(req, timeout=CFG.get("request_timeout", 150)) as r:
                     return json.load(r)
             except Exception as e:
                 last = e
@@ -70,8 +75,9 @@ def load_data():
     if VENUES_F.exists():
         d = json.loads(VENUES_F.read_text("utf-8"))
         d.setdefault("done", {})
+        d.setdefault("tried", {})
         return d
-    return {"venues": [], "done": {}}
+    return {"venues": [], "done": {}, "tried": {}}
 
 
 def stale_prefs(d):
@@ -81,7 +87,7 @@ def stale_prefs(d):
         d["done"] = {}
     pri = priority_codes()
     return sorted((c for c in range(1, 48) if now - d["done"].get(str(c), 0) > days * 86400),
-                  key=lambda c: (c not in pri, d["done"].get(str(c), 0)))
+                  key=lambda c: (c not in pri, d.get("tried", {}).get(str(c), 0), d["done"].get(str(c), 0)))
 
 
 def fetch_some(d):
@@ -98,10 +104,11 @@ def fetch_some(d):
         if fails >= 3:
             print("3回連続で失敗したため中断します。残りは次回の実行で続けます", flush=True)
             break
-        q = (f'[out:json][timeout:90];area["ISO3166-2"="JP-{c:02d}"]->.a;'
+        q = (f'[out:json][timeout:120];area["ISO3166-2"="JP-{c:02d}"]->.a;'
              '(nwr(area.a)["amenity"="music_venue"]["name"];nwr(area.a)["amenity"="theatre"]["name"];'
              'nwr(area.a)["leisure"="stadium"]["name"];);out center tags;')
         print(f"取得中 {PREFS[c-1]}", flush=True)
+        d.setdefault("tried", {})[str(c)] = time.time()
         try:
             by[c] = [p for p in (parse(e, c) for e in overpass(q).get("elements", [])) if p]
             d["done"][str(c)] = time.time()
@@ -112,7 +119,7 @@ def fetch_some(d):
             print("  この県はスキップ(前回データを残します):", e, flush=True)
         d["venues"] = [v for k in sorted(by) for v in by[k]]
         VENUES_F.write_text(json.dumps(d, ensure_ascii=False), "utf-8")
-        time.sleep(5)
+        time.sleep(20)
     print(f"取得済みの県: {len(d['done'])}/47", flush=True)
 
 
