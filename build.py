@@ -22,17 +22,23 @@ def esc(s):
 
 
 # ---------------------------------------------------------------- 1) 取得
+URLS = CFG.get("overpass_urls") or ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]
+
+
 def overpass(q):
-    for i in range(4):
-        try:
-            req = urllib.request.Request(CFG["overpass_url"], data=urllib.parse.urlencode({"data": q}).encode(),
-                                         headers={"User-Agent": CFG["user_agent"]})
-            with urllib.request.urlopen(req, timeout=180) as r:
-                return json.load(r)
-        except Exception as e:
-            print("  retry:", e)
-            time.sleep(30 * (i + 1))
-    raise RuntimeError("Overpass API に接続できませんでした")
+    last = None
+    for attempt in range(2):
+        for u in URLS:
+            try:
+                req = urllib.request.Request(u, data=urllib.parse.urlencode({"data": q}).encode(),
+                                             headers={"User-Agent": CFG["user_agent"]})
+                with urllib.request.urlopen(req, timeout=CFG.get("request_timeout", 100)) as r:
+                    return json.load(r)
+            except Exception as e:
+                last = e
+                print(f"  失敗({u.split('/')[2]}): {e}", flush=True)
+        time.sleep(20 * (attempt + 1))
+    raise RuntimeError(last)
 
 
 def parse(el, pref):
@@ -48,34 +54,53 @@ def parse(el, pref):
             "website": t.get("website", t.get("contact:website", "")), "capacity": t.get("capacity", "")}
 
 
-def fetch_all():
-    old = json.loads(VENUES_F.read_text("utf-8")) if VENUES_F.exists() else {"venues": []}
-    keep = {}
-    for v in old["venues"]:
-        keep.setdefault(v["pref"], []).append(v)
-    out = []
-    for code in range(1, 48):
-        q = (f'[out:json][timeout:150];area["ISO3166-2"="JP-{code:02d}"]->.a;'
+def load_data():
+    if VENUES_F.exists():
+        d = json.loads(VENUES_F.read_text("utf-8"))
+        d.setdefault("done", {})
+        return d
+    return {"venues": [], "done": {}}
+
+
+def stale_prefs(d):
+    """更新が必要な県(古い順)。未取得は最優先。"""
+    now, days = time.time(), CFG["refetch_days"]
+    if "--fetch" in sys.argv:
+        d["done"] = {}
+    return sorted((c for c in range(1, 48) if now - d["done"].get(str(c), 0) > days * 86400),
+                  key=lambda c: d["done"].get(str(c), 0))
+
+
+def fetch_some(d):
+    """時間の上限内で、取れた県から順に保存する。残りは次回の実行に持ち越し。"""
+    by = {}
+    for v in d["venues"]:
+        by.setdefault(v["pref"], []).append(v)
+    deadline = time.time() + CFG.get("fetch_budget_minutes", 40) * 60
+    fails = 0
+    for c in stale_prefs(d):
+        if time.time() > deadline:
+            print("取得の時間上限に達したため中断します。残りは次回の実行で続けます", flush=True)
+            break
+        if fails >= 3:
+            print("3回連続で失敗したため中断します。残りは次回の実行で続けます", flush=True)
+            break
+        q = (f'[out:json][timeout:90];area["ISO3166-2"="JP-{c:02d}"]->.a;'
              '(nwr(area.a)["amenity"="music_venue"]["name"];nwr(area.a)["amenity"="theatre"]["name"];'
              'nwr(area.a)["leisure"="stadium"]["name"];);out center tags;')
-        print(f"取得中 {code}/47 {PREFS[code-1]}")
+        print(f"取得中 {PREFS[c-1]}", flush=True)
         try:
-            vs = [p for p in (parse(e, code) for e in overpass(q).get("elements", [])) if p]
-            out += vs
-        except Exception as e:  # 失敗した県は前回データを残す
-            print("  失敗、前回データを使用:", e)
-            out += keep.get(code, [])
+            by[c] = [p for p in (parse(e, c) for e in overpass(q).get("elements", [])) if p]
+            d["done"][str(c)] = time.time()
+            fails = 0
+            print(f"  {len(by[c])} 件", flush=True)
+        except Exception as e:
+            fails += 1
+            print("  この県はスキップ(前回データを残します):", e, flush=True)
+        d["venues"] = [v for k in sorted(by) for v in by[k]]
+        VENUES_F.write_text(json.dumps(d, ensure_ascii=False), "utf-8")
         time.sleep(5)
-    VENUES_F.write_text(json.dumps({"fetched_at": time.time(), "venues": out}, ensure_ascii=False), "utf-8")
-
-
-def need_fetch():
-    if "--no-fetch" in sys.argv:
-        return False
-    if "--fetch" in sys.argv or not VENUES_F.exists():
-        return True
-    age = time.time() - json.loads(VENUES_F.read_text("utf-8")).get("fetched_at", 0)
-    return age > CFG["refetch_days"] * 86400
+    print(f"取得済みの県: {len(d['done'])}/47", flush=True)
 
 
 # ---------------------------------------------------------------- 2) 紹介文
@@ -245,9 +270,10 @@ def render(venues, desc):
 
 def main():
     DATA.mkdir(exist_ok=True)
-    if need_fetch():
-        fetch_all()
-    venues = json.loads(VENUES_F.read_text("utf-8"))["venues"]
+    d = load_data()
+    if "--no-fetch" not in sys.argv and stale_prefs(d):
+        fetch_some(d)
+    venues = load_data()["venues"]
     desc = describe(venues)
     unrev = sum(1 for v in venues if v["id"] in desc and not desc[v["id"]].get("reviewed"))
     print(f"未確認の紹介文: {unrev} 件 / 紹介文なし: {sum(1 for v in venues if v['id'] not in desc)} 件")
