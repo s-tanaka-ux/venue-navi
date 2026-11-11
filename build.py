@@ -134,8 +134,8 @@ def ask(prompt):
 
 def describe(venues):
     desc = json.loads(DESC_F.read_text("utf-8")) if DESC_F.exists() else {}
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("ANTHROPIC_API_KEY 未設定のため、紹介文の下書きはスキップします")
+    if not os.environ.get("ANTHROPIC_API_KEY") or not CFG.get("use_ai", True):
+        print("AIの紹介文は使いません(APIキー未設定、または use_ai が false)")
         return desc
     todo = [v for v in venues if v["id"] not in desc]
     pri = priority_codes()
@@ -185,6 +185,23 @@ i.addEventListener('input',function(){var k=i.value.trim().toLowerCase();if(!k){
 l.innerHTML=o.map(function(v){return'<li><a href="'+r+'v/'+v[2]+'.html">'+e(v[0])+'<span>'+e(v[1])+'</span></a></li>'}).join('')||'<li class="none">見つかりません</li>'})})})();"""
 
 
+AI_USED = False
+
+
+def facts_text(v):
+    """データにある事実だけで作る定型文(AI不使用)。事実が2つ以上ある会場だけ返す。"""
+    pref = PREFS[v["pref"] - 1]
+    n = bool(v["addr"]) + bool(v["capacity"]) + bool(v["website"])
+    if n < 2:
+        return ""
+    t = f"{v['name']}は、{pref}{v['addr']}にある{KINDS[v['kind']]}です。" if v["addr"] else f"{v['name']}は、{pref}にある{KINDS[v['kind']]}です。"
+    if v["capacity"]:
+        t += f"収容人数は{v['capacity']}人とされています。"
+    if v["website"].startswith("http"):
+        t += "公演の日程やチケットなどの最新情報は、公式サイトでご確認ください。"
+    return t
+
+
 def ad(kind):
     c, s = CFG["adsense_client"], CFG["ad_slots"].get(kind, "")
     if c and s:
@@ -208,7 +225,7 @@ def page(root, path, title, desc, body, noindex=False):
 <div class="sw"><input id="sk" type="search" placeholder="会場名で検索" aria-label="会場名で検索" autocomplete="off"><ul id="sr"></ul></div></div></header>
 <main>{body}</main>
 <footer><div><a href="{root}about.html">運営について</a><a href="{root}privacy.html">プライバシーポリシー</a><a href="{root}contact.html">お問い合わせ</a>
-<p>会場データ © <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap contributors</a>(ODbL)。紹介文にはAIが作成した下書きを含みます。<br>© {esc(name)}</p></div></footer>
+<p>会場データ © <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap contributors</a>(ODbL)。{"紹介文にはAIが作成した下書きを含みます。" if AI_USED else ""}<br>© {esc(name)}</p></div></footer>
 <script>{JS}</script></body></html>""", "utf-8")
 
 
@@ -216,6 +233,8 @@ def render(venues, desc):
     import shutil
     shutil.rmtree(DIST, ignore_errors=True)
     DIST.mkdir()
+    global AI_USED
+    AI_USED = any(x.get("text") for x in desc.values())
     name, by_pref = CFG["site_name"], {}
     for v in venues:
         by_pref.setdefault(v["pref"], []).append(v)
@@ -247,7 +266,7 @@ def render(venues, desc):
     # 会場ページ
     for c, vs in by_pref.items():
         for v in vs:
-            d = desc.get(v["id"], {}).get("text", "")
+            d = desc.get(v["id"], {}).get("text", "") or facts_text(v)
             near = sorted((o for o in vs if o is not v and o["kind"] == v["kind"]),
                           key=lambda o: (o["lat"] - v["lat"]) ** 2 + (o["lon"] - v["lon"]) ** 2)[:6]
             rel = "".join(f'<li><a href="{o["id"]}.html">{esc(o["name"])}</a></li>' for o in near)
@@ -270,7 +289,7 @@ def render(venues, desc):
     # 固定ページ(AdSense審査に必要。内容は必ず確認・修正してください)
     mail = esc(CFG["contact_email"] or "(config.json の contact_email を設定してください)")
     static = {
-        "about": ("運営について", f"<p>{esc(name)}は、全国のライブ・コンサート会場の情報をまとめたサイトです。会場の基本情報はOpenStreetMapの公開データをもとにしており、紹介文はAIで下書きしたものを含みます。情報の誤りや変更にお気づきの場合はお問い合わせください。</p>"),
+        "about": ("運営について", f"<p>{esc(name)}は、全国のライブ・コンサート会場の情報をまとめたサイトです。会場の基本情報はOpenStreetMapの公開データをもとにしています。{"紹介文はAIで下書きしたものを含みます。" if AI_USED else ""}情報の誤りや変更にお気づきの場合はお問い合わせください。</p>"),
         "privacy": ("プライバシーポリシー", "<p>当サイトは、Google AdSenseなどの第三者配信の広告サービスを利用することがあります。広告配信事業者は、Cookieを使用して、ユーザーが当サイトや他のサイトに過去にアクセスした際の情報に基づいて広告を配信します。Cookieを無効にする設定やGoogleによる広告のパーソナライズの無効化は、Googleの広告設定ページから行えます。</p><p>当サイトでは、アクセス状況の把握のためにアクセス解析ツールを利用する場合があります。収集される情報に個人を特定するものは含まれません。</p><p>当サイトの掲載情報の正確性には注意していますが、利用者が当サイトの情報を用いて行う行動の結果について、責任を負いかねます。</p>"),
         "contact": ("お問い合わせ", f"<p>会場情報の修正依頼やご意見は、次のメールアドレスまでご連絡ください。</p><p>{mail}</p>"),
     }
