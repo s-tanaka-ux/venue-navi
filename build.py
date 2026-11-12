@@ -5,12 +5,12 @@
  3) dist/ に静的HTMLを生成
 使い方: python build.py [--fetch] [--no-fetch]
 """
-import html, json, os, pathlib, sys, time, urllib.parse, urllib.request, datetime
+import html, json, os, pathlib, re, sys, time, urllib.parse, urllib.request, datetime
 
 ROOT = pathlib.Path(__file__).parent
 DATA, DIST = ROOT / "data", ROOT / "dist"
 CFG = json.loads((ROOT / "config.json").read_text("utf-8"))
-VENUES_F, DESC_F = DATA / "venues.json", DATA / "descriptions.json"
+VENUES_F, DESC_F, EXTRA_F = DATA / "venues.json", DATA / "descriptions.json", DATA / "extra.json"
 
 PREFS = ["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"]
 REG = [("北海道",[1]),("東北",range(2,8)),("関東",range(8,15)),("中部",range(15,24)),("近畿",range(24,31)),("中国",range(31,36)),("四国",range(36,40)),("九州・沖縄",range(40,48))]
@@ -19,6 +19,16 @@ KINDS = {"music_venue": "ライブハウス・音楽会場", "theatre": "劇場�
 
 def esc(s):
     return html.escape(str(s), quote=True)
+
+
+def cap_num(x):
+    """OSMのcapacity(例 '1,200' や '1200;300')から先頭の数字を取り出す。なければ0。"""
+    m = re.search(r"\d[\d,]*", str(x or ""))
+    return int(m.group().replace(",", "")) if m else 0
+
+
+def unit_of(v):
+    return "席" if v["kind"] == "theatre" else "人"
 
 
 # ---------------------------------------------------------------- 1) 取得
@@ -56,7 +66,9 @@ def parse(el, pref):
         ("addr:city", "addr:suburb", "addr:quarter", "addr:neighbourhood", "addr:block_number", "addr:housenumber"))
     return {"id": el["type"][0] + str(el["id"]), "name": t["name"], "kind": kind, "pref": pref,
             "lat": round(c["lat"], 5), "lon": round(c["lon"], 5), "addr": addr,
-            "website": t.get("website", t.get("contact:website", "")), "capacity": t.get("capacity", "")}
+            "website": t.get("website", t.get("contact:website", "")), "capacity": t.get("capacity", ""),
+            "operator": t.get("operator", ""), "start_date": t.get("start_date", ""), "phone": t.get("phone", t.get("contact:phone", "")),
+            "kana": t.get("name:ja-Hira", t.get("name:ja_kana", ""))}
 
 
 def priority_codes():
@@ -176,7 +188,18 @@ h2{font-size:1.15rem;margin:26px 0 12px;padding-left:10px;border-left:5px solid 
 .card{background:var(--s);border:1px solid var(--line);border-radius:10px;padding:16px 18px}.tag{display:inline-block;padding:1px 10px;border-radius:4px;background:rgb(var(--h));color:var(--s);font-size:.78rem}
 table{border-collapse:collapse;width:100%;margin-top:12px}th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--line);font-size:.92rem;vertical-align:top}th{width:7em;color:var(--sub);font-weight:500}
 .bc{font-size:.82rem;color:var(--sub);margin:18px 0 0}.adw{margin:26px 0;min-height:90px}.ph{background:var(--ab);border:1px dashed var(--line);border-radius:6px;color:var(--sub);font-size:.76rem;text-align:center;padding:12px}.ph small{display:block}
-.note{font-size:.8rem;color:var(--sub)}footer{background:rgb(62,48,140);color:#e6e3f8;margin-top:36px;padding:22px 14px;font-size:.82rem}footer div{max-width:1000px;margin:auto}footer a{margin-right:14px}"""
+.note{font-size:.8rem;color:var(--sub)}[hidden]{display:none!important}
+.nv{font-size:.85rem;text-decoration:none;opacity:.9}.nv:hover{text-decoration:underline}
+.sortbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 8px;font-size:.85rem}.sortbar span{color:var(--sub)}
+.sortbar button{padding:4px 12px;border:1px solid var(--line);border-radius:999px;background:var(--s);color:var(--ink);font:inherit;cursor:pointer}
+.sortbar button.on{background:rgb(var(--h));border-color:rgb(var(--h));color:var(--s)}
+.list a.row{display:flex;align-items:center;gap:12px}.pb{flex:none;padding:1px 9px;border-radius:4px;background:rgba(47,154,99,.16);color:var(--r3);font-size:.78rem;font-weight:700}
+.rn{flex:1;min-width:0}.rc{flex:none;font-weight:700;font-size:1.05rem}
+.blk{background:var(--s);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:0 0 12px}.blk h2{margin:0 0 8px;padding:0;border:0;font-size:.82rem;color:rgb(var(--h))}
+.big{font-size:1.9rem;line-height:1.1}.u{font-size:.85rem;color:var(--sub);margin-right:4px}.sm{margin:2px 0;font-size:.8rem;color:var(--sub)}
+.kv{margin:0 0 8px}.kv b{display:block;font-size:.82rem}.ask{display:inline-block;padding:3px 12px;border:1px solid rgb(var(--h));border-radius:6px;background:rgba(var(--h),.1);color:rgb(var(--h));font-size:.8rem;text-decoration:none}
+.adr{display:flex;justify-content:space-between;gap:10px;align-items:center}.mapb{flex:none;padding:3px 12px;border:1px solid var(--line);border-radius:6px;font-size:.8rem;text-decoration:none}
+.tl{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px solid var(--line)}.tl li{position:relative;padding:0 0 12px 12px;font-size:.9rem}.tl li::before{content:"";position:absolute;left:-21px;top:.55em;width:10px;height:10px;border-radius:50%;background:rgb(var(--h))}.tl b{display:block}footer{background:rgb(62,48,140);color:#e6e3f8;margin-top:36px;padding:22px 14px;font-size:.82rem}footer div{max-width:1000px;margin:auto}footer a{margin-right:14px}"""
 
 JS = """(function(){var i=document.getElementById('sk'),l=document.getElementById('sr'),d=null,r=document.documentElement.dataset.root||'';
 function e(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -222,6 +245,7 @@ def page(root, path, title, desc, body, noindex=False):
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)}</title><meta name="description" content="{esc(desc)}">{robots}{canon}
 <style>{CSS}</style>{ads}</head><body>
 <header><div class="hb"><a class="logo" href="{root}index.html">{esc(name)}</a>
+<a class="nv" href="{root}ranking.html">収容人数ランキング</a>
 <div class="sw"><input id="sk" type="search" placeholder="会場名で検索" aria-label="会場名で検索" autocomplete="off"><ul id="sr"></ul></div></div></header>
 <main>{body}</main>
 <footer><div><a href="{root}about.html">運営について</a><a href="{root}privacy.html">プライバシーポリシー</a><a href="{root}contact.html">お問い合わせ</a>
@@ -253,34 +277,100 @@ def render(venues, desc):
             f'{ad("top")}<h2>エリアから会場を探す</h2>{grid}{ad("mid")}{ad("bottom")}')
     page("", "index.html", f"{name} | {CFG['tagline']}", f"全国のライブ・コンサート会場を都道府県別に探せます。掲載数{len(venues):,}件。", body)
 
+    extra = json.loads(EXTRA_F.read_text("utf-8")) if EXTRA_F.exists() else {}
+
+    def rows(vs, root):
+        out = ""
+        for v in vs:
+            n = cap_num(v.get("capacity"))
+            out += (f'<li data-cap="{n}" data-name="{esc(v["name"])}" data-kind="{v["kind"]}"><a class="row" href="{root}v/{v["id"]}.html">'
+                    f'<span class="pb">{PREFS[v["pref"]-1]}</span><span class="rn">{esc(v["name"])}<small>{KINDS[v["kind"]]}</small></span>'
+                    f'<span class="rc">{f"{n:,}{unit_of(v)}" if n else ""}</span></a></li>')
+        return out
+
+    controls = ('<div class="sortbar"><span>並び替え</span><button type="button" data-s="cd" class="on">収容人数の多い順</button>'
+                '<button type="button" data-s="ca">少ない順</button><button type="button" data-s="nm">名前順</button></div>'
+                '<div class="sortbar"><span>種類</span><button type="button" data-k="" class="on">すべて</button>'
+                + "".join(f'<button type="button" data-k="{k}">{n}</button>' for k, n in KINDS.items()) + "</div>")
+    sort_js = """<script>(function(){var ul=document.getElementById('vl');if(!ul)return;var li=[].slice.call(ul.children),s='cd',k='';
+function nm(p,q){return p.dataset.name.localeCompare(q.dataset.name,'ja')}
+function go(){var a=li.filter(function(x){return!k||x.dataset.kind===k});li.forEach(function(x){x.hidden=a.indexOf(x)<0});
+a.sort(function(p,q){var c=+p.dataset.cap,d=+q.dataset.cap;if(s==='nm')return nm(p,q);if(!c&&d)return 1;if(c&&!d)return-1;return(s==='cd'?d-c:c-d)||nm(p,q)});
+a.forEach(function(x){ul.appendChild(x)})}
+[].forEach.call(document.querySelectorAll('[data-s]'),function(b){b.onclick=function(){s=b.dataset.s;[].forEach.call(document.querySelectorAll('[data-s]'),function(y){y.classList.toggle('on',y===b)});go()}});
+[].forEach.call(document.querySelectorAll('[data-k]'),function(b){b.onclick=function(){k=b.dataset.k;[].forEach.call(document.querySelectorAll('[data-k]'),function(y){y.classList.toggle('on',y===b)});go()}});go()})();</script>"""
+
     # 都道府県ページ
     for c in range(1, 48):
         vs = by_pref.get(c, [])
-        li = "".join(f'<li><a href="../v/{v["id"]}.html">{esc(v["name"])}<small>{KINDS[v["kind"]]}</small></a></li>' for v in vs)
         body = (f'<p class="bc"><a href="../index.html">トップ</a> › {PREFS[c-1]}</p><h1>{PREFS[c-1]}のライブ・コンサート会場({len(vs)}件)</h1>'
-                f'{ad("top")}<ul class="list">{li or "<li><a>該当する会場はまだありません</a></li>"}</ul>{ad("bottom")}')
-        page("../", f"pref/{c}.html", f"{PREFS[c-1]}のライブ会場一覧 | {name}", f"{PREFS[c-1]}のライブハウス、ホール、スタジアムなど{len(vs)}件の会場一覧。", body, noindex=not vs)
+                f'{ad("top")}{controls if vs else ""}<ul class="list" id="vl">{rows(vs, "../") or "<li><a>該当する会場はまだありません</a></li>"}</ul>{ad("bottom")}{sort_js}')
+        page("../", f"pref/{c}.html", f"{PREFS[c-1]}のライブ会場一覧 | {name}", f"{PREFS[c-1]}のライブハウス、ホール、スタジアムなど{len(vs)}件の会場一覧。収容人数順に並べ替えできます。", body, noindex=not vs)
         if vs:
             urls.append(f"pref/{c}.html")
 
+    # 収容人数ランキング(全国)
+    top = sorted((v for v in venues if cap_num(v.get("capacity"))), key=lambda v: -cap_num(v["capacity"]))[:300]
+    body = (f'<p class="bc"><a href="index.html">トップ</a> › 収容人数ランキング</p><h1>収容人数の多い会場ランキング</h1>'
+            f'<p class="note">OpenStreetMapに収容人数が登録されている会場のみ。表示は登録された数値で、席数と立ち見の人数が混在する場合があります。</p>'
+            f'{ad("top")}{controls}<ul class="list" id="vl">{rows(top, "")}</ul>{ad("bottom")}{sort_js}')
+    page("", "ranking.html", f"収容人数の多いライブ会場ランキング | {name}", "全国のライブ・コンサート会場を収容人数の多い順に一覧できます。", body, noindex=not top)
+    if top:
+        urls.append("ranking.html")
+
     # 会場ページ
+    def ask(v, what):
+        mail = CFG.get("contact_email", "")
+        if mail:
+            subj = urllib.parse.quote(f"【{CFG['site_name']}】{v['name']}の{what}の情報提供")
+            href = f"mailto:{mail}?subject={subj}"
+        else:
+            href = "../contact.html"
+        return f'<a class="ask" href="{esc(href)}">情報募集中 ›</a>'
+
+    def blk(title, inner):
+        return f'<section class="blk"><h2>{title}</h2>{inner}</section>'
+
     for c, vs in by_pref.items():
         for v in vs:
+            ex = extra.get(v["id"], {})
             d = desc.get(v["id"], {}).get("text", "") or facts_text(v)
             near = sorted((o for o in vs if o is not v and o["kind"] == v["kind"]),
                           key=lambda o: (o["lat"] - v["lat"]) ** 2 + (o["lon"] - v["lon"]) ** 2)[:6]
             rel = "".join(f'<li><a href="{o["id"]}.html">{esc(o["name"])}</a></li>' for o in near)
-            rows = f'<tr><th>種類</th><td>{KINDS[v["kind"]]}</td></tr><tr><th>所在地</th><td>{PREFS[c-1]}{esc(v["addr"])}</td></tr>'
-            if v["capacity"]:
-                rows += f'<tr><th>収容人数</th><td>{esc(v["capacity"])}</td></tr>'
-            if v["website"].startswith("http"):
-                rows += f'<tr><th>公式サイト</th><td><a href="{esc(v["website"])}" rel="nofollow noopener" target="_blank">{esc(v["website"])}</a></td></tr>'
-            rows += f'<tr><th>地図</th><td><a href="https://www.openstreetmap.org/?mlat={v["lat"]}&amp;mlon={v["lon"]}#map=17/{v["lat"]}/{v["lon"]}" rel="noopener" target="_blank">地図で見る</a></td></tr>'
+            n, u = cap_num(v.get("capacity")), unit_of(v)
+            if n:
+                cap = f'<p><span class="u">{"座席" if u == "席" else "収容"}</span><b class="big">{n:,}</b> {u}</p>'
+            else:
+                cap = ask(v, "収容人数")
+            cap += "".join(f'<p class="sm">{esc(a)}…{esc(b)}</p>' for a, b in ex.get("capacity_detail", []))
+            def kv(label, val):
+                return f'<div class="kv"><b>{label}</b>{esc(val) if val else ask(v, label)}</div>'
+            gear = kv("コインロッカー", ex.get("locker", "")) + kv("クローク", ex.get("cloak", "")) + kv("傘立て", ex.get("umbrella", ""))
+            hist = [list(h) for h in ex.get("history", [])]
+            if not hist and v.get("start_date"):
+                hist = [[v["start_date"], "開業・竣工(OpenStreetMap登録情報)"]]
+            tl = ('<ul class="tl">' + "".join(f"<li><b>{esc(a)}</b>{esc(b)}</li>" for a, b in hist) + "</ul>") if hist else ask(v, "沿革")
+            mapurl = f'https://www.openstreetmap.org/?mlat={v["lat"]}&amp;mlon={v["lon"]}#map=17/{v["lat"]}/{v["lon"]}'
+            addr = f'{PREFS[c-1]}{esc(v["addr"])}' if v["addr"] else PREFS[c-1]
+            memo = ""
+            kana = ex.get("kana") or v.get("kana", "")
+            if kana:
+                memo += f"<p>読み方は「{esc(kana)}」。</p>"
+            if ex.get("memo"):
+                memo += f"<p>{esc(ex['memo'])}</p>"
+            if d:
+                memo += f"<p>{esc(d)}</p>"
+            basic = "".join(f'<div class="kv"><b>{l}</b>{esc(v[k])}</div>' for l, k in (("運営", "operator"), ("電話", "phone")) if v.get(k))
+            web = (f'<a href="{esc(v["website"])}" rel="nofollow noopener" target="_blank">{esc(v["website"])}</a>'
+                   if v["website"].startswith("http") else ask(v, "公式サイト"))
             body = (f'<p class="bc"><a href="../index.html">トップ</a> › <a href="../pref/{c}.html">{PREFS[c-1]}</a> › {esc(v["name"])}</p>'
                     f'<h1>{esc(v["name"])}</h1><span class="tag">{KINDS[v["kind"]]}</span>{ad("top")}'
-                    f'<div class="card">{"<p>" + esc(d) + "</p>" if d else ""}<table>{rows}</table>'
-                    '<p class="note">情報は変更されている場合があります。お出かけ前に公式情報をご確認ください。</p></div>'
-                    f'{ad("mid")}{"<h2>近くの同じ種類の会場</h2><ul class=list>" + rel + "</ul>" if rel else ""}{ad("bottom")}')
+                    + blk("収容人数", cap) + blk("観客向け手荷物設備", gear) + blk("舞台サイズ", esc(ex["stage"]) if ex.get("stage") else ask(v, "舞台サイズ"))
+                    + blk("住所", f'<div class="adr"><span>{addr}</span><a class="mapb" href="{mapurl}" rel="noopener" target="_blank">地図</a></div>')
+                    + blk("沿革", tl) + (blk("基本情報", basic) if basic else "") + blk("公式サイト", web) + (blk("メモ", memo) if memo else "")
+                    + '<p class="note">情報は変更されている場合があります。お出かけ前に公式情報をご確認ください。</p>'
+                    + f'{ad("mid")}{"<h2>近くの同じ種類の会場</h2><ul class=list>" + rel + "</ul>" if rel else ""}{ad("bottom")}')
             page("../", f"v/{v['id']}.html", f"{v['name']}({PREFS[c-1]}) | {name}",
                  (d[:110] if d else f"{PREFS[c-1]}の{KINDS[v['kind']]}「{v['name']}」の会場情報。"), body, noindex=not d)
             if d:
